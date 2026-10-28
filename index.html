@@ -99,7 +99,7 @@ body.full #unit { font-size: 11vw; }
 <main id="stage">
   <div id="valueWrap"><span id="value">2.345</span><span id="unit">m</span></div>
   <div id="tilt">∠ 1.8°</div>
-  <div id="sub"><b>Beispielwert</b> · Verbinde deinen DISTO und miss los</div>
+  <div id="sub"><b>Beispielwert</b> · Verbinde DISTO oder CITO und miss los</div>
 </main>
 
 <div class="units" role="group" aria-label="Einheit">
@@ -111,7 +111,7 @@ body.full #unit { font-size: 11vw; }
 <div id="history"><span class="empty">Letzte Messungen erscheinen hier</span></div>
 
 <footer>
-  <button class="big" id="connect" type="button">DISTO verbinden</button>
+  <button class="big" id="connect" type="button">Verbinden</button>
   <button class="big" id="measure" type="button" disabled>Messen</button>
 </footer>
 
@@ -121,10 +121,16 @@ body.full #unit { font-size: 11vw; }
     <h3>Weg 1: Direkt per Bluetooth (mit Neigung)</h3>
     <ol>
       <li>Bluetooth am DISTO einschalten (Bluetooth-Symbol im Display).</li>
-      <li>Hier auf <b>DISTO verbinden</b> tippen und das Gerät auswählen.</li>
+      <li>Hier auf <b>Verbinden</b> tippen und das Gerät auswählen.</li>
       <li>Am DISTO messen. Jeder Wert erscheint sofort groß.</li>
     </ol>
-    <p>Auf dem iPhone nur in der App „Bluefy“, auf Android in Chrome. Nach dem Öffnen oder Neuladen der Seite jedes Mal neu auf <b>DISTO verbinden</b> tippen. Oben muss „Verbunden“ stehen, sonst kommen die Werte nur über den Tastatur-Modus.</p>
+    <p>Auf dem iPhone nur in der App „Bluefy“, auf Android in Chrome. Nach dem Öffnen oder Neuladen der Seite jedes Mal neu auf <b>Verbinden</b> tippen. Oben muss „Verbunden“ stehen, sonst kommen die Werte nur über den Tastatur-Modus.</p>
+    <h3>SOLA CITO Rollbandmaß</h3>
+    <ol>
+      <li>CITO einschalten. Die SOLA-App muss geschlossen sein.</li>
+      <li>Auf <b>Verbinden</b> tippen und „Solaflex_…“ auswählen.</li>
+      <li>Am CITO messen und die Sende-Taste drücken.</li>
+    </ol>
     <h3>Weg 2: Tastatur-Modus (iPhone und Android)</h3>
     <ol>
       <li>Am DISTO im Bluetooth-Menü den Tastatur-Modus (HID) einschalten.</li>
@@ -146,6 +152,8 @@ body.full #unit { font-size: 11vw; }
   const CH_DIST = "3ab10101-f831-4395-b29d-570977d5bf94";
   const CH_CMD = "3ab10109-f831-4395-b29d-570977d5bf94";
   const CH_TILT = "3ab10103-f831-4395-b29d-570977d5bf94";
+  // SOLA CITO (meldet sich als "Solaflex_…"): sendet Textzeilen wie "B 1 361 mm B\r\n"
+  const CITO_SVC = 0xfff0, CITO_DATA = 0xfff1;
 
   const $ = id => document.getElementById(id);
   const valueEl = $("value"), unitEl = $("unit"), subEl = $("sub"), wrap = $("valueWrap");
@@ -261,21 +269,28 @@ body.full #unit { font-size: 11vw; }
       return;
     }
     try {
-      setStatus("Suche DISTO …", "wait");
+      setStatus("Suche Messgerät …", "wait");
       // "Alle Geräte" zeigt jedes Bluetooth-Gerät, falls der DISTO anders heißt
       device = await navigator.bluetooth.requestDevice(showAll === true
-        ? { acceptAllDevices: true, optionalServices: [SVC] }
-        : { filters: [{ namePrefix: "DISTO" }, { namePrefix: "Leica" }, { namePrefix: "X4" }, { services: [SVC] }], optionalServices: [SVC] });
+        ? { acceptAllDevices: true, optionalServices: [SVC, CITO_SVC] }
+        : { filters: [{ namePrefix: "DISTO" }, { namePrefix: "Leica" }, { namePrefix: "X4" }, { services: [SVC] },
+                      { namePrefix: "Solaflex" }, { namePrefix: "CITO" }, { services: [CITO_SVC] }],
+            optionalServices: [SVC, CITO_SVC] });
       logRaw("Gewählt: " + (device.name || "(ohne Namen)"));
       device.addEventListener("gattserverdisconnected", onDisconnect);
-      setStatus("Verbinde mit " + (device.name || "DISTO") + " …", "wait");
+      setStatus("Verbinde mit " + (device.name || "Gerät") + " …", "wait");
       // Beim ersten Mal koppelt das iPhone mitten im Verbindungsaufbau,
       // das bricht oft ab. Daher bis zu dreimal versuchen.
-      let server, svc;
+      let server, svc, isCito = false;
       for (let attempt = 1; ; attempt++) {
         try {
           server = await device.gatt.connect();
-          svc = await server.getPrimaryService(SVC);
+          try { svc = await server.getPrimaryService(SVC); }
+          catch (e) {
+            if (!(e && e.name === "NotFoundError")) throw e;
+            svc = await server.getPrimaryService(CITO_SVC);
+            isCito = true;
+          }
           break;
         } catch (e) {
           logRaw(`Versuch ${attempt}: ${e && e.name} – ${e && e.message ? e.message : e}`);
@@ -284,6 +299,7 @@ body.full #unit { font-size: 11vw; }
           await new Promise(r => setTimeout(r, 1500));
         }
       }
+      if (isCito) { await connectCito(svc); return; }
       try {
         const chars = await svc.getCharacteristics();
         logRaw("Kanäle: " + chars.map(c => c.uuid.slice(4, 8) + (c.properties.notify || c.properties.indicate ? "*" : "")).join(", "));
@@ -321,7 +337,7 @@ body.full #unit { font-size: 11vw; }
       requestWake();
     } catch (err) {
       logRaw("Fehler: " + (err && err.name) + " – " + (err && err.message ? err.message : err));
-      if (err && err.name === "NotFoundError" && /service/i.test(err.message || "")) setStatus("Dieses Gerät hat keinen DISTO-Datenkanal", "");
+      if (err && err.name === "NotFoundError" && /service/i.test(err.message || "")) setStatus("Dieses Gerät hat keinen DISTO- oder CITO-Datenkanal", "");
       else if (err && err.name === "NotFoundError") setStatus("Kein Gerät gewählt. Nicht in der Liste? Tippe auf „Alle Geräte“.", "");
       else if (err && err.name === "SecurityError") {
         setStatus("Bluetooth ist hier gesperrt. Öffne die App-Datei direkt oder nutze den Tastatur-Modus.", "");
@@ -329,10 +345,45 @@ body.full #unit { font-size: 11vw; }
     }
   }
 
+  // CITO: Text kommt evtl. in Stücken, daher bis Zeilenende sammeln
+  let citoBuf = "";
+  async function connectCito(svc) {
+    const ch = await svc.getCharacteristic(CITO_DATA);
+    const dec = new TextDecoder();
+    ch.addEventListener("characteristicvaluechanged", e => {
+      const dv = e.target.value;
+      const txt = dec.decode(dv);
+      logRaw("CITO: " + JSON.stringify(txt) + " (" + hex(dv).split(" = ")[0] + ")");
+      citoBuf += txt;
+      let i;
+      while ((i = citoBuf.search(/[\r\n]/)) >= 0) {
+        const line = citoBuf.slice(0, i); citoBuf = citoBuf.slice(i + 1);
+        const m = parseCito(line);
+        if (m != null) newMeasurement(m, "CITO");
+      }
+      if (citoBuf.length > 200) citoBuf = "";
+    });
+    await ch.startNotifications();
+    tilt = null; render(false);  // CITO hat keine Neigung
+    $("measure").disabled = true;
+    $("connect").textContent = "Trennen";
+    setStatus("Verbunden: " + (device.name || "CITO"), "on");
+    requestWake();
+  }
+
+  // "B 1 361 mm B" -> 0.361 m. Nimmt die Zahl direkt vor der Einheit.
+  function parseCito(line) {
+    const m = line.match(/(-?\d+(?:[.,]\d+)?)\s*(mm|cm|m|in|ft|")(?![a-z])/i);
+    if (!m) return null;
+    const v = parseFloat(m[1].replace(",", "."));
+    const f = { mm: 0.001, cm: 0.01, m: 1, in: 0.0254, '"': 0.0254, ft: 0.3048 }[m[2].toLowerCase()];
+    return v * f;
+  }
+
   function onDisconnect() {
     cmdChar = null;
     $("measure").disabled = true;
-    $("connect").textContent = "DISTO verbinden";
+    $("connect").textContent = "Verbinden";
     setStatus("Verbindung getrennt", "");
   }
 
