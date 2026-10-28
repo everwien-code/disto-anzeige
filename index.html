@@ -365,7 +365,11 @@ body.full #unit { font-size: 11vw; }
     logRaw("BT " + id + ": " + hex(dv));
     if (dv.byteLength < 4) return;
     const f = floats(dv);
-    if (id === "0101" || id === "010d") newMeasurement(f[0], "Bluetooth");
+    // X3/X4: 010d = [Distanz m, Neigung rad, …] (am X4 geprüft: 0.4612 / 0.3421 = 46 cm bei 19,6°)
+    if (id === "010d") {
+      if (f.length > 1 && f[1] !== 0) newTilt(f[1] * 180 / Math.PI, "Bluetooth");
+      if (f[0] !== 0) newMeasurement(f[0], "Bluetooth");
+    } else if (id === "0101") newMeasurement(f[0], "Bluetooth");
     else if (id === "0103") newTilt(Math.abs(f[0]) > 6.3 ? f[0] : f[0] * 180 / Math.PI, "Bluetooth");
   }
 
