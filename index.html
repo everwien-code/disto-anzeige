@@ -271,13 +271,23 @@ body.full #unit { font-size: 11vw; }
     }
     try {
       setStatus("Suche Messgerät …", "wait");
+      // Schon einmal erlaubtes Gerät direkt nehmen. Ist der DISTO im iPhone als Tastatur
+      // verbunden, taucht er in der Auswahlliste nicht auf, ist hier aber erreichbar.
+      device = null;
+      if (showAll !== true && navigator.bluetooth.getDevices) {
+        let last = null;
+        try { last = localStorage.getItem("disto-last-device"); } catch (e) {}
+        try { device = (await navigator.bluetooth.getDevices()).find(d => d.id === last) || null; } catch (e) {}
+        if (device) logRaw("Bekanntes Gerät ohne Auswahl: " + (device.name || device.id));
+      }
       // "Alle Geräte" zeigt jedes Bluetooth-Gerät, falls der DISTO anders heißt
-      device = await navigator.bluetooth.requestDevice(showAll === true
+      if (!device) device = await navigator.bluetooth.requestDevice(showAll === true
         ? { acceptAllDevices: true, optionalServices: [SVC, CITO_SVC] }
         : { filters: [{ namePrefix: "DISTO" }, { namePrefix: "Leica" }, { namePrefix: "X4" }, { services: [SVC] },
                       { namePrefix: "Solaflex" }, { namePrefix: "CITO" }, { services: [CITO_SVC] }],
             optionalServices: [SVC, CITO_SVC] });
       logRaw("Gewählt: " + (device.name || "(ohne Namen)"));
+      try { localStorage.setItem("disto-last-device", device.id); } catch (e) {}
       device.addEventListener("gattserverdisconnected", onDisconnect);
       setStatus("Verbinde mit " + (device.name || "Gerät") + " …", "wait");
       // Beim ersten Mal koppelt das iPhone mitten im Verbindungsaufbau,
