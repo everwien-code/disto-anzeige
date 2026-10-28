@@ -153,7 +153,7 @@ body.full #unit { font-size: 11vw; }
   const CH_CMD = "3ab10109-f831-4395-b29d-570977d5bf94";
   const CH_TILT = "3ab10103-f831-4395-b29d-570977d5bf94";
   // SOLA CITO (meldet sich als "Solaflex_…"): sendet Textzeilen wie "B 1 361 mm B\r\n"
-  const CITO_SVC = 0xfff0, CITO_DATA = 0xfff1;
+  const CITO_SVC = "0000fff0-0000-1000-8000-00805f9b34fb", CITO_DATA = "0000fff1-0000-1000-8000-00805f9b34fb";
 
   const $ = id => document.getElementById(id);
   const valueEl = $("value"), unitEl = $("unit"), subEl = $("sub"), wrap = $("valueWrap");
@@ -281,15 +281,19 @@ body.full #unit { font-size: 11vw; }
       setStatus("Verbinde mit " + (device.name || "Gerät") + " …", "wait");
       // Beim ersten Mal koppelt das iPhone mitten im Verbindungsaufbau,
       // das bricht oft ab. Daher bis zu dreimal versuchen.
+      // CITO („Solaflex_…“) am Namen erkennen und zuerst probieren. Bluefy meldet
+      // einen fehlenden Service nicht immer als NotFoundError (z. B. nur „2“).
       let server, svc, isCito = false;
+      const citoFirst = /solaflex|cito|sola/i.test(device.name || "");
       for (let attempt = 1; ; attempt++) {
         try {
           server = await device.gatt.connect();
-          try { svc = await server.getPrimaryService(SVC); }
+          const order = citoFirst ? [CITO_SVC, SVC] : [SVC, CITO_SVC];
+          try { svc = await server.getPrimaryService(order[0]); isCito = citoFirst; }
           catch (e) {
-            if (!(e && e.name === "NotFoundError")) throw e;
-            svc = await server.getPrimaryService(CITO_SVC);
-            isCito = true;
+            logRaw(`Service ${citoFirst ? "CITO" : "DISTO"}: ${e && e.name} – ${e && e.message ? e.message : e}`);
+            try { svc = await server.getPrimaryService(order[1]); isCito = !citoFirst; }
+            catch (e2) { throw e; }
           }
           break;
         } catch (e) {
