@@ -360,6 +360,8 @@ body.full #unit { font-size: 11vw; }
     return out;
   }
   function onBle(id, dv) {
+    // Beim Verbinden schickt der X4 leere Pakete aus Nullen, die sind kein Messwert
+    if (new Uint8Array(dv.buffer, dv.byteOffset, dv.byteLength).every(x => x === 0)) { logRaw("BT " + id + ": leer"); return; }
     logRaw("BT " + id + ": " + hex(dv));
     if (dv.byteLength < 4) return;
     const f = floats(dv);
