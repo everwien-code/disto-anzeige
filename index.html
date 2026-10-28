@@ -79,7 +79,7 @@ footer { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding-block
 #help p, #help li { color: #cfd8d3; margin: 4px 0; }
 #help ol { padding-left: 20px; margin: 4px 0; }
 #help .close { margin-top: 16px; width: 100%; }
-#rawlog { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px; margin: 6px 0 0; white-space: pre-wrap; word-break: break-all; color: var(--muted); max-height: 12rem; overflow-y: auto; }
+#rawlog { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px; margin: 6px 0 0; white-space: pre-wrap; word-break: break-all; color: var(--muted); }
 
 body.full header, body.full footer, body.full .units, body.full #history { display: none; }
 body.full #unit { font-size: 11vw; }
@@ -308,7 +308,18 @@ body.full #unit { font-size: 11vw; }
       // Die DISTO-Generationen senden auf verschiedenen Kanälen (ältere auf 3ab10101,
       // X3/X4 laut Entwicklerforen auf 3ab1010d). Deshalb alle meldenden Kanäle abonnieren.
       const chars = await svc.getCharacteristics();
-      logRaw("Kanäle: " + chars.map(c => c.uuid.slice(4, 8) + (c.properties.notify || c.properties.indicate ? "*" : "")).join(", "));
+      // Für die Diagnose: jeder Kanal mit seinen Fähigkeiten (r=lesen, w=schreiben, n/i=meldet)
+      const flags = c => ["read:r", "write:w", "writeWithoutResponse:W", "notify:n", "indicate:i"]
+        .filter(x => c.properties[x.split(":")[0]]).map(x => x.split(":")[1]).join("");
+      logRaw("Kanäle: " + chars.map(c => c.uuid.slice(4, 8) + "(" + flags(c) + ")").join(", "));
+      for (const c of chars) {
+        if (!c.properties.read) continue;
+        try {
+          const v = await c.readValue();
+          const txt = new TextDecoder().decode(v).replace(/[^\x20-\x7e]/g, ".");
+          logRaw("Lesen " + c.uuid.slice(4, 8) + ": " + hex(v) + "  \"" + txt + "\"");
+        } catch (e) { logRaw("Lesen " + c.uuid.slice(4, 8) + " fehlgeschlagen"); }
+      }
       let subscribed = 0;
       for (const c of chars) {
         if (!(c.properties.notify || c.properties.indicate)) continue;
