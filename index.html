@@ -91,6 +91,7 @@ body.full #unit { font-size: 11vw; }
 
 <header>
   <div class="status"><i class="dot" id="dot"></i><span id="statusText">Nicht verbunden</span></div>
+  <button class="iconbtn" id="allBtn" type="button" hidden>Alle Geräte</button>
   <button class="iconbtn" id="helpBtn" type="button">Hilfe</button>
   <button class="iconbtn" id="fullBtn" type="button">Vollbild</button>
 </header>
@@ -252,7 +253,7 @@ body.full #unit { font-size: 11vw; }
   }
 
   // ---------- Weg 1: Web Bluetooth ----------
-  async function connect() {
+  async function connect(showAll) {
     if (device && device.gatt.connected) { device.gatt.disconnect(); return; }
     if (!navigator.bluetooth) {
       setStatus("Dieser Browser kann kein Bluetooth. Nutze den Tastatur-Modus.", "");
@@ -261,10 +262,11 @@ body.full #unit { font-size: 11vw; }
     }
     try {
       setStatus("Suche DISTO …", "wait");
-      device = await navigator.bluetooth.requestDevice({
-        filters: [{ namePrefix: "DISTO" }, { services: [SVC] }],
-        optionalServices: [SVC]
-      });
+      // "Alle Geräte" zeigt jedes Bluetooth-Gerät, falls der DISTO anders heißt
+      device = await navigator.bluetooth.requestDevice(showAll === true
+        ? { acceptAllDevices: true, optionalServices: [SVC] }
+        : { filters: [{ namePrefix: "DISTO" }, { namePrefix: "Leica" }, { namePrefix: "X4" }, { services: [SVC] }], optionalServices: [SVC] });
+      logRaw("Gewählt: " + (device.name || "(ohne Namen)"));
       device.addEventListener("gattserverdisconnected", onDisconnect);
       setStatus("Verbinde mit " + (device.name || "DISTO") + " …", "wait");
       const server = await device.gatt.connect();
@@ -305,7 +307,9 @@ body.full #unit { font-size: 11vw; }
       setStatus("Verbunden: " + (device.name || "DISTO"), "on");
       requestWake();
     } catch (err) {
-      if (err && err.name === "NotFoundError") setStatus("Kein Gerät gewählt", "");
+      logRaw("Fehler: " + (err && err.name) + " – " + (err && err.message ? err.message : err));
+      if (err && err.name === "NotFoundError" && /service/i.test(err.message || "")) setStatus("Dieses Gerät hat keinen DISTO-Datenkanal", "");
+      else if (err && err.name === "NotFoundError") setStatus("Kein Gerät gewählt. Nicht in der Liste? Tippe auf „Alle Geräte“.", "");
       else if (err && err.name === "SecurityError") {
         setStatus("Bluetooth ist hier gesperrt. Öffne die App-Datei direkt oder nutze den Tastatur-Modus.", "");
       } else setStatus("Verbindung fehlgeschlagen: " + (err && err.message ? err.message : err), "");
@@ -419,7 +423,9 @@ body.full #unit { font-size: 11vw; }
     requestAnimationFrame(fit);
   }
 
-  $("connect").addEventListener("click", connect);
+  $("connect").addEventListener("click", () => connect(false));
+  $("allBtn").addEventListener("click", () => connect(true));
+  $("allBtn").hidden = !navigator.bluetooth;
   $("measure").addEventListener("click", measure);
   $("fullBtn").addEventListener("click", toggleFull);
   $("stage").addEventListener("click", () => { if (document.body.classList.contains("full")) toggleFull(); else requestWake(); });
