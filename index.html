@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}[hidden]{display:none!important}</style>
+<title>Disto Großanzeige</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="theme-color" content="#121514">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@500;700&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<style>
+/* Layout: ein Bildschirm wie ein Messgerät-Display. Oben Statusleiste, Mitte riesiger Messwert, unten Verlauf und Bedienung. Bewusst nur dunkel (blendet auf der Baustelle nicht). */
+:root {
+  --bg: #121514;
+  --panel: #1b201e;
+  --line: #2c3431;
+  --fg: #eef3ef;
+  --muted: #8d9a94;
+  --signal: #ff4b3e;      /* Laserpunkt */
+  --ok: #58d68d;
+  --warn: #f5b942;
+  --f-num: "Saira Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+  --f-ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--f-ui); font-size: 15px;
+  display: flex; flex-direction: column; overflow: hidden;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  -webkit-tap-highlight-color: transparent; user-select: none;
+}
+button { font: inherit; color: inherit; cursor: pointer; }
+button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
+header { display: flex; align-items: center; gap: 10px; padding-block: 10px; flex-wrap: wrap; }
+.status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); min-width: 0; flex: 1; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex: none; }
+.dot.on { background: var(--ok); box-shadow: 0 0 10px var(--ok); }
+.dot.wait { background: var(--warn); animation: blink 1s infinite; }
+@keyframes blink { 50% { opacity: .3; } }
+.status span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.iconbtn { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font-size: 13px; }
+
+main { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; position: relative; }
+#valueWrap { width: 100%; display: flex; justify-content: center; align-items: baseline; gap: .15em; line-height: .9; }
+#value {
+  font-family: var(--f-num); font-weight: 700; font-variant-numeric: tabular-nums;
+  white-space: nowrap; letter-spacing: -.01em; font-size: 30vw;
+}
+#unit { font-family: var(--f-num); font-weight: 500; color: var(--muted); font-size: 9vw; }
+#value.flash { animation: flash .6s ease-out; }
+@keyframes flash { from { color: var(--signal); } to { color: var(--fg); } }
+#sub { font-size: 14px; color: var(--muted); margin-top: 8px; text-align: center; min-height: 1.4em; }
+#sub b { color: var(--warn); font-weight: 600; }
+#tilt { font-family: var(--f-num); font-weight: 500; font-variant-numeric: tabular-nums; color: var(--warn); line-height: 1; margin-top: .1em; white-space: nowrap; }
+
+.units { display: flex; gap: 6px; justify-content: center; padding-block: 6px; }
+.units button { background: transparent; border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; font-family: var(--f-num); font-size: 17px; color: var(--muted); }
+.units button[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+
+#history { display: flex; gap: 8px; overflow-x: auto; padding-block: 8px; scrollbar-width: none; }
+#history::-webkit-scrollbar { display: none; }
+#history button { flex: none; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; font-family: var(--f-num); font-size: 18px; font-variant-numeric: tabular-nums; }
+#history .empty { color: var(--muted); font-size: 13px; padding: 6px 0; }
+
+footer { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding-block: 8px 14px; }
+.big { border: none; border-radius: 14px; padding: 16px 10px; font-weight: 600; font-size: 16px; }
+#connect { background: var(--signal); color: #fff; }
+#measure { background: var(--panel); border: 1px solid var(--line); }
+#measure:disabled { opacity: .4; cursor: default; }
+
+#help { position: fixed; inset: 0; background: rgba(8,10,9,.92); display: flex; align-items: center; justify-content: center; padding: 20px max(16px, env(safe-area-inset-right, 0px)) 20px max(16px, env(safe-area-inset-left, 0px)); z-index: 20; user-select: text; }
+#help .card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 20px; max-width: 34rem; max-height: 100%; overflow-y: auto; line-height: 1.5; }
+#help h2 { margin: 0 0 8px; font-family: var(--f-num); font-size: 26px; text-wrap: balance; }
+#help h3 { margin: 16px 0 4px; font-size: 15px; color: var(--warn); }
+#help p, #help li { color: #cfd8d3; margin: 4px 0; }
+#help ol { padding-left: 20px; margin: 4px 0; }
+#help .close { margin-top: 16px; width: 100%; }
+#rawlog { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px; margin: 6px 0 0; white-space: pre-wrap; word-break: break-all; color: var(--muted); max-height: 12rem; overflow-y: auto; }
+
+body.full header, body.full footer, body.full .units, body.full #history { display: none; }
+body.full #unit { font-size: 11vw; }
+@media (orientation: landscape) { #unit { font-size: 7vh; } }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="status"><i class="dot" id="dot"></i><span id="statusText">Nicht verbunden</span></div>
+  <button class="iconbtn" id="helpBtn" type="button">Hilfe</button>
+  <button class="iconbtn" id="fullBtn" type="button">Vollbild</button>
+</header>
+
+<main id="stage">
+  <div id="valueWrap"><span id="value">2.345</span><span id="unit">m</span></div>
+  <div id="tilt">∠ 1.8°</div>
+  <div id="sub"><b>Beispielwert</b> · Verbinde deinen DISTO und miss los</div>
+</main>
+
+<div class="units" role="group" aria-label="Einheit">
+  <button type="button" data-u="m" aria-pressed="true">m</button>
+  <button type="button" data-u="cm" aria-pressed="false">cm</button>
+  <button type="button" data-u="mm" aria-pressed="false">mm</button>
+  <button type="button" data-u="ft" aria-pressed="false">ft/in</button>
+</div>
+<div id="history"><span class="empty">Letzte Messungen erscheinen hier</span></div>
+
+<footer>
+  <button class="big" id="connect" type="button">DISTO verbinden</button>
+  <button class="big" id="measure" type="button" disabled>Messen</button>
+</footer>
+
+<div id="help" hidden>
+  <div class="card">
+    <h2>So kommen die Maße aufs Handy</h2>
+    <h3>Weg 1: Direkt per Bluetooth (Android, Chrome)</h3>
+    <ol>
+      <li>Bluetooth am DISTO einschalten (Bluetooth-Symbol im Display).</li>
+      <li>Hier auf <b>DISTO verbinden</b> tippen und das Gerät auswählen.</li>
+      <li>Am DISTO messen. Jeder Wert erscheint sofort groß.</li>
+    </ol>
+    <p>Klappt nur in Chrome oder Edge auf Android, Windows oder Mac. iPhone-Browser können kein Web Bluetooth.</p>
+    <h3>Weg 2: Tastatur-Modus (iPhone und Android)</h3>
+    <ol>
+      <li>Am DISTO im Bluetooth-Menü den Tastatur-Modus (HID) einschalten.</li>
+      <li>DISTO in den Bluetooth-Einstellungen des Handys koppeln.</li>
+      <li>Diese Seite öffnen und einmal auf den Bildschirm tippen.</li>
+      <li>Am DISTO messen: Der Wert wird wie getippt empfangen und groß angezeigt.</li>
+    </ol>
+    <p>Tipp: <b>Vollbild</b> blendet alle Bedienelemente aus. Ein Tipp auf den Wert holt sie zurück.</p>
+    <h3>Diagnose: zuletzt empfangen</h3>
+    <p>Wenn etwas nicht angezeigt wird, schick mir einen Screenshot dieser Liste.</p>
+    <pre id="rawlog">Noch nichts empfangen.</pre>
+    <button class="big iconbtn close" id="helpClose" type="button">Verstanden</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  const SVC = "3ab10100-f831-4395-b29d-570977d5bf94";
+  const CH_DIST = "3ab10101-f831-4395-b29d-570977d5bf94";
+  const CH_CMD = "3ab10109-f831-4395-b29d-570977d5bf94";
+  const CH_TILT = "3ab10103-f831-4395-b29d-570977d5bf94";
+
+  const $ = id => document.getElementById(id);
+  const valueEl = $("value"), unitEl = $("unit"), subEl = $("sub"), wrap = $("valueWrap");
+  let unit = "m", current = 2.345, isSample = true, history = [];
+  let tilt = 1.8, lastTiltAt = 0, lastMeasureAt = 0;
+  const tiltEl = $("tilt");
+  let device = null, cmdChar = null, wakeLock = null;
+
+  try { unit = localStorage.getItem("disto-unit") || "m"; } catch (e) {}
+
+  function format(m) {
+    if (unit === "cm") return [(m * 100).toFixed(1), "cm"];
+    if (unit === "mm") return [Math.round(m * 1000).toString(), "mm"];
+    if (unit === "ft") {
+      const totalIn = m / 0.0254;
+      let ft = Math.floor(totalIn / 12), inch = Math.round((totalIn - ft * 12) * 8) / 8;
+      if (inch >= 12) { ft += 1; inch -= 12; }
+      return [`${ft}' ${inch.toFixed(inch % 1 ? 3 : 0).replace(/\.?0+$/, "")}"`, ""];
+    }
+    return [m.toFixed(3), "m"];
+  }
+
+  function fit() {
+    // Wert so groß wie möglich, ohne den Rand zu sprengen
+    const stage = $("stage");
+    let size = Math.min(stage.clientWidth * 0.5, stage.clientHeight * (tilt == null ? 0.8 : 0.55));
+    valueEl.style.fontSize = size + "px";
+    unitEl.style.fontSize = Math.max(18, size * 0.3) + "px";
+    const avail = stage.clientWidth;
+    let guard = 0;
+    while (wrap.scrollWidth > avail && guard++ < 60) {
+      size *= 0.94;
+      valueEl.style.fontSize = size + "px";
+      unitEl.style.fontSize = Math.max(18, size * 0.3) + "px";
+    }
+    tiltEl.style.fontSize = Math.max(22, size * 0.42) + "px";
+  }
+
+  function fmtTilt(d) { return "∠ " + d.toFixed(1).replace("-0.0", "0.0") + "°"; }
+
+  function render(flash) {
+    const [v, u] = format(current);
+    valueEl.textContent = v;
+    unitEl.textContent = u;
+    unitEl.hidden = !u;
+    tiltEl.hidden = tilt == null;
+    if (tilt != null) tiltEl.textContent = fmtTilt(tilt);
+    fit();
+    if (flash) { valueEl.classList.remove("flash"); void valueEl.offsetWidth; valueEl.classList.add("flash"); }
+    document.querySelectorAll(".units button").forEach(b => b.setAttribute("aria-pressed", b.dataset.u === unit));
+    renderHistory();
+  }
+
+  function renderHistory() {
+    const h = $("history");
+    if (!history.length) { h.innerHTML = '<span class="empty">Letzte Messungen erscheinen hier</span>'; return; }
+    h.innerHTML = "";
+    history.forEach(entry => {
+      const m = entry.m;
+      const b = document.createElement("button");
+      b.type = "button";
+      const [v, u] = format(m);
+      b.textContent = (u ? `${v} ${u}` : v) + (entry.t != null ? `  ${entry.t.toFixed(1)}°` : "");
+      b.addEventListener("click", () => { current = m; tilt = entry.t; render(true); subEl.textContent = "Aus dem Verlauf"; });
+      h.appendChild(b);
+    });
+  }
+
+  function newMeasurement(meters, source) {
+    if (!isFinite(meters)) return;
+    if (isSample) tilt = null;  // Beispiel-Neigung nicht stehen lassen
+    isSample = false;
+    current = meters;
+    lastMeasureAt = Date.now();
+    // Neigung bleibt sichtbar; im Verlauf nur, wenn sie zeitnah kam
+    history.unshift({ m: meters, t: (lastMeasureAt - lastTiltAt < 1500) ? tilt : null });
+    history = history.slice(0, 20);
+    const t = new Date().toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    subEl.textContent = `${source} · ${t}`;
+    render(true);
+    if (navigator.vibrate) try { navigator.vibrate(40); } catch (e) {}
+  }
+
+  function newTilt(deg, source) {
+    if (!isFinite(deg)) return;
+    tilt = deg;
+    lastTiltAt = Date.now();
+    // Kam die Neigung kurz nach dem Messwert, gehört sie zu diesem
+    if (history.length && lastTiltAt - lastMeasureAt < 1500) history[0].t = deg;
+    if (isSample) { isSample = false; subEl.textContent = source; }
+    render(false);
+  }
+
+  const rawLines = [];
+  function logRaw(text) {
+    const t = new Date().toLocaleTimeString("de-DE");
+    rawLines.unshift(`${t}  ${text}`);
+    rawLines.length = Math.min(rawLines.length, 30);
+    $("rawlog").textContent = rawLines.join("\n");
+  }
+
+  function setStatus(text, state) {
+    $("statusText").textContent = text;
+    $("dot").className = "dot" + (state ? " " + state : "");
+  }
+
+  // ---------- Weg 1: Web Bluetooth ----------
+  async function connect() {
+    if (device && device.gatt.connected) { device.gatt.disconnect(); return; }
+    if (!navigator.bluetooth) {
+      setStatus("Dieser Browser kann kein Bluetooth. Nutze den Tastatur-Modus.", "");
+      $("help").hidden = false;
+      return;
+    }
+    try {
+      setStatus("Suche DISTO …", "wait");
+      device = await navigator.bluetooth.requestDevice({
+        filters: [{ namePrefix: "DISTO" }, { services: [SVC] }],
+        optionalServices: [SVC]
+      });
+      device.addEventListener("gattserverdisconnected", onDisconnect);
+      setStatus("Verbinde mit " + (device.name || "DISTO") + " …", "wait");
+      const server = await device.gatt.connect();
+      const svc = await server.getPrimaryService(SVC);
+      try {
+        const chars = await svc.getCharacteristics();
+        logRaw("Kanäle: " + chars.map(c => c.uuid.slice(4, 8) + (c.properties.notify || c.properties.indicate ? "*" : "")).join(", "));
+        // Alle meldenden Kanäle mitschreiben, damit wir sehen, was der DISTO sendet
+        for (const c of chars) {
+          if (c.uuid === CH_DIST || c.uuid === CH_TILT) continue;
+          if (!(c.properties.notify || c.properties.indicate)) continue;
+          c.addEventListener("characteristicvaluechanged", e => logRaw("BT " + c.uuid.slice(4, 8) + ": " + hex(e.target.value)));
+          c.startNotifications().catch(() => {});
+        }
+      } catch (e) {}
+      const dist = await svc.getCharacteristic(CH_DIST);
+      dist.addEventListener("characteristicvaluechanged", e => {
+        const dv = e.target.value;
+        logRaw("BT Distanz: " + hex(dv));
+        if (dv.byteLength >= 4) newMeasurement(dv.getFloat32(0, true), "Bluetooth");
+      });
+      await dist.startNotifications();
+      try {
+        const tch = await svc.getCharacteristic(CH_TILT);
+        tch.addEventListener("characteristicvaluechanged", e => {
+          const dv = e.target.value;
+          logRaw("BT Neigung: " + hex(dv));
+          if (dv.byteLength < 4) return;
+          const v = dv.getFloat32(0, true);
+          // Gerät liefert Bogenmaß; große Werte sind schon Grad
+          newTilt(Math.abs(v) > 6.3 ? v : v * 180 / Math.PI, "Bluetooth");
+        });
+        await tch.startNotifications();
+      } catch (e) { logRaw("Kein Neigungskanal: " + (e && e.message ? e.message : e)); }
+      try { cmdChar = await svc.getCharacteristic(CH_CMD); } catch (e) { cmdChar = null; }
+      $("measure").disabled = !cmdChar;
+      $("connect").textContent = "Trennen";
+      setStatus("Verbunden: " + (device.name || "DISTO"), "on");
+      requestWake();
+    } catch (err) {
+      if (err && err.name === "NotFoundError") setStatus("Kein Gerät gewählt", "");
+      else if (err && err.name === "SecurityError") {
+        setStatus("Bluetooth ist hier gesperrt. Öffne die App-Datei direkt oder nutze den Tastatur-Modus.", "");
+      } else setStatus("Verbindung fehlgeschlagen: " + (err && err.message ? err.message : err), "");
+    }
+  }
+
+  function onDisconnect() {
+    cmdChar = null;
+    $("measure").disabled = true;
+    $("connect").textContent = "DISTO verbinden";
+    setStatus("Verbindung getrennt", "");
+  }
+
+  async function measure() {
+    if (!cmdChar) return;
+    try { await cmdChar.writeValue(new TextEncoder().encode("g")); }
+    catch (e) { setStatus("Messbefehl nicht unterstützt. Bitte am Gerät auslösen.", "on"); }
+  }
+
+  // ---------- Weg 2: Tastatur-Modus (HID) ----------
+  let buf = "", bufTimer = null;
+  // Eine Zeile kann mehrere Werte enthalten (per Tab oder Leerzeichen getrennt),
+  // z. B. "2.345 m<Tab>12.4°". Felder werden bis Enter oder kurzer Pause gesammelt.
+  let fields = [];
+  // Winkel: ° oder jedes andere Sonderzeichen hinter der Zahl. Bei abweichendem
+  // Tastaturlayout kommt das ° vom DISTO oft als ^, ~, ` oder ähnliches an.
+  const ANGLE = /^(-?\d+(?:[.,]\d+)?)\s*(°|º|deg|grad|[^\d\s.,a-z'"\-]+)$/i;
+  let keyTrail = [];
+  function closeField() {
+    const f = buf.trim(); buf = "";
+    if (f) fields.push(f);
+  }
+  function flushBuffer() {
+    clearTimeout(bufTimer);
+    closeField();
+    if (!fields.length) return;
+    logRaw("Tastatur: " + fields.map(f => JSON.stringify(f)).join(" | ") + "   Tasten: " + keyTrail.join(" "));
+    keyTrail = [];
+    // Felder mit Leerzeichen aufteilen, wenn sie als Ganzes nicht lesbar sind
+    const parts = [];
+    fields.forEach(f => {
+      if (parseTyped(f) != null || ANGLE.test(f)) parts.push(f);
+      else (f.match(/-?\d+(?:[.,]\d+)?\s*(?:mm|cm|m|ft|in|°|º|deg|grad|"|'|[^\d\s.,a-z'"\-]+)?/gi) || []).forEach(p => parts.push(p.trim()));
+    });
+    fields = [];
+    let gotDist = false;
+    parts.forEach(p => {
+      const ang = p.match(ANGLE);
+      if (ang) { newTilt(parseFloat(ang[1].replace(",", ".")), "Tastatur-Modus"); return; }
+      const meters = parseTyped(p);
+      if (meters == null) return;
+      // Zweite Zahl ohne Einheit in derselben Zeile = Neigung
+      if (gotDist && !/[a-z"']/i.test(p)) { newTilt(parseFloat(p.replace(",", ".")), "Tastatur-Modus"); return; }
+      gotDist = true;
+      newMeasurement(meters, "Tastatur-Modus");
+    });
+  }
+  function parseTyped(s) {
+    s = s.replace(/\s+/g, " ").trim();
+    // ft/in, z. B. 7'8 1/2" oder 7' 8.5"
+    const fi = s.match(/^(-?\d+)'\s*(\d+(?:[.,]\d+)?)?(?:\s+(\d+)\/(\d+))?\s*"?$/);
+    if (fi) {
+      let inch = parseFloat((fi[2] || "0").replace(",", "."));
+      if (fi[3]) inch += +fi[3] / +fi[4];
+      return (+fi[1] * 12 + inch) * 0.0254;
+    }
+    const m = s.match(/^(-?\d+(?:[.,]\d+)?)\s*(mm|cm|m|in|ft|"|')?$/i);
+    if (!m) return null;
+    const n = parseFloat(m[1].replace(",", "."));
+    const u = (m[2] || "").toLowerCase();
+    if (u === "mm") return n / 1000;
+    if (u === "cm") return n / 100;
+    if (u === "in" || u === '"') return n * 0.0254;
+    if (u === "ft" || u === "'") return n * 0.3048;
+    if (u === "m") return n;
+    // ohne Einheit: am Komma/Punkt erkennen, ob Meter oder Millimeter
+    return /[.,]/.test(m[1]) ? n : n / 1000;
+  }
+  document.addEventListener("keydown", e => {
+    if (e.ctrlKey || e.metaKey) return;
+    // Jede Taste für die Diagnose mitschreiben
+    keyTrail.push(e.key.length === 1 ? e.key : "[" + e.key + "]");
+    if (keyTrail.length > 60) keyTrail.shift();
+    if (e.key === "Enter") { e.preventDefault(); flushBuffer(); return; }
+    if (e.key === "Tab") {
+      e.preventDefault(); closeField();
+      clearTimeout(bufTimer); bufTimer = setTimeout(flushBuffer, 400);
+      return;
+    }
+    if (e.key === "Dead" || e.key === "Unidentified") { buf += "°"; return; }
+    if (e.key.length === 1) {
+      buf += e.key;
+      clearTimeout(bufTimer);
+      bufTimer = setTimeout(flushBuffer, 400);
+      setStatus("Tastatur-Modus aktiv", "on");
+    }
+  });
+
+  // ---------- Bedienung ----------
+  async function requestWake() {
+    try { if ("wakeLock" in navigator && !wakeLock) { wakeLock = await navigator.wakeLock.request("screen"); wakeLock.addEventListener("release", () => wakeLock = null); } } catch (e) {}
+  }
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") requestWake(); });
+
+  function toggleFull() {
+    const on = !document.body.classList.contains("full");
+    document.body.classList.toggle("full", on);
+    if (on && document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
+    if (!on && document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    requestWake();
+    requestAnimationFrame(fit);
+  }
+
+  $("connect").addEventListener("click", connect);
+  $("measure").addEventListener("click", measure);
+  $("fullBtn").addEventListener("click", toggleFull);
+  $("stage").addEventListener("click", () => { if (document.body.classList.contains("full")) toggleFull(); else requestWake(); });
+  document.addEventListener("fullscreenchange", () => { if (!document.fullscreenElement) document.body.classList.remove("full"); requestAnimationFrame(fit); });
+  $("helpBtn").addEventListener("click", () => $("help").hidden = false);
+  $("helpClose").addEventListener("click", () => $("help").hidden = true);
+  document.querySelectorAll(".units button").forEach(b => b.addEventListener("click", () => {
+    unit = b.dataset.u;
+    try { localStorage.setItem("disto-unit", unit); } catch (e) {}
+    render(false);
+  }));
+  window.addEventListener("resize", () => requestAnimationFrame(fit));
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(fit);
+
+  function hex(dv) {
+    const b = [];
+    for (let i = 0; i < dv.byteLength; i++) b.push(dv.getUint8(i).toString(16).padStart(2, "0"));
+    const f = dv.byteLength >= 4 ? " = " + dv.getFloat32(0, true).toFixed(4) : "";
+    return b.join(" ") + f;
+  }
+
+  if (!navigator.bluetooth) setStatus("Kein Web Bluetooth: Tastatur-Modus nutzen (siehe Hilfe)", "");
+  render(false);
+})();
+</script>
+</body>
+</html>
