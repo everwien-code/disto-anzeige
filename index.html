@@ -377,7 +377,7 @@ body.full #unit { font-size: 11vw; }
       // Zweite Zahl ohne Einheit in derselben Zeile = Neigung
       if (gotDist && !/[a-z"']/i.test(p)) { newTilt(parseFloat(p.replace(",", ".")), "Tastatur-Modus"); return; }
       gotDist = true;
-      newMeasurement(meters, "Tastatur-Modus");
+      newMeasurement(meters, (device && device.gatt.connected) ? "Tastatur-Modus" : "Tastatur-Modus (ohne Neigung – für Neigung „DISTO verbinden“ tippen)");
     });
   }
   function parseTyped(s) {
