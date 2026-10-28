@@ -153,6 +153,7 @@ body.full #unit { font-size: 11vw; }
   const CH_CMD = "3ab10109-f831-4395-b29d-570977d5bf94";
   const CH_TILT = "3ab10103-f831-4395-b29d-570977d5bf94";
   // SOLA CITO (meldet sich als "Solaflex_…"): sendet Textzeilen wie "B 1 361 mm B\r\n"
+  // (Sendetaste), beim Bewegen des Bands laufend "M 501.00 mm B\r\n" (live)
   const CITO_SVC = "0000fff0-0000-1000-8000-00805f9b34fb", CITO_DATA = "0000fff1-0000-1000-8000-00805f9b34fb";
 
   const $ = id => document.getElementById(id);
@@ -363,7 +364,12 @@ body.full #unit { font-size: 11vw; }
       while ((i = citoBuf.search(/[\r\n]/)) >= 0) {
         const line = citoBuf.slice(0, i); citoBuf = citoBuf.slice(i + 1);
         const m = parseCito(line);
-        if (m != null) newMeasurement(m, "CITO");
+        if (m == null) continue;
+        // "M 501.00 mm B" = Live-Wert beim Bewegen des Bands, "B 1 500 mm B" = Sendetaste
+        if (/^\s*M\b/.test(line)) {
+          isSample = false; current = m; render(false);
+          subEl.textContent = "CITO live · Sendetaste drückt den Wert in den Verlauf";
+        } else newMeasurement(m, "CITO");
       }
       if (citoBuf.length > 200) citoBuf = "";
     });
