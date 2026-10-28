@@ -305,36 +305,19 @@ body.full #unit { font-size: 11vw; }
         }
       }
       if (isCito) { await connectCito(svc); return; }
-      try {
-        const chars = await svc.getCharacteristics();
-        logRaw("Kanäle: " + chars.map(c => c.uuid.slice(4, 8) + (c.properties.notify || c.properties.indicate ? "*" : "")).join(", "));
-        // Alle meldenden Kanäle mitschreiben, damit wir sehen, was der DISTO sendet
-        for (const c of chars) {
-          if (c.uuid === CH_DIST || c.uuid === CH_TILT) continue;
-          if (!(c.properties.notify || c.properties.indicate)) continue;
-          c.addEventListener("characteristicvaluechanged", e => logRaw("BT " + c.uuid.slice(4, 8) + ": " + hex(e.target.value)));
-          c.startNotifications().catch(() => {});
-        }
-      } catch (e) {}
-      const dist = await svc.getCharacteristic(CH_DIST);
-      dist.addEventListener("characteristicvaluechanged", e => {
-        const dv = e.target.value;
-        logRaw("BT Distanz: " + hex(dv));
-        if (dv.byteLength >= 4) newMeasurement(dv.getFloat32(0, true), "Bluetooth");
-      });
-      await dist.startNotifications();
-      try {
-        const tch = await svc.getCharacteristic(CH_TILT);
-        tch.addEventListener("characteristicvaluechanged", e => {
-          const dv = e.target.value;
-          logRaw("BT Neigung: " + hex(dv));
-          if (dv.byteLength < 4) return;
-          const v = dv.getFloat32(0, true);
-          // Gerät liefert Bogenmaß; große Werte sind schon Grad
-          newTilt(Math.abs(v) > 6.3 ? v : v * 180 / Math.PI, "Bluetooth");
-        });
-        await tch.startNotifications();
-      } catch (e) { logRaw("Kein Neigungskanal: " + (e && e.message ? e.message : e)); }
+      // Die DISTO-Generationen senden auf verschiedenen Kanälen (ältere auf 3ab10101,
+      // X3/X4 laut Entwicklerforen auf 3ab1010d). Deshalb alle meldenden Kanäle abonnieren.
+      const chars = await svc.getCharacteristics();
+      logRaw("Kanäle: " + chars.map(c => c.uuid.slice(4, 8) + (c.properties.notify || c.properties.indicate ? "*" : "")).join(", "));
+      let subscribed = 0;
+      for (const c of chars) {
+        if (!(c.properties.notify || c.properties.indicate)) continue;
+        const id = c.uuid.slice(4, 8);
+        c.addEventListener("characteristicvaluechanged", e => onBle(id, e.target.value));
+        try { await c.startNotifications(); subscribed++; }
+        catch (e) { logRaw("Abo " + id + " fehlgeschlagen: " + (e && e.message ? e.message : e)); }
+      }
+      if (!subscribed) throw new Error("Der DISTO bietet keinen Kanal mit Messwerten an");
       try { cmdChar = await svc.getCharacteristic(CH_CMD); } catch (e) { cmdChar = null; }
       $("measure").disabled = !cmdChar;
       $("connect").textContent = "Trennen";
@@ -348,6 +331,19 @@ body.full #unit { font-size: 11vw; }
         setStatus("Bluetooth ist hier gesperrt. Öffne die App-Datei direkt oder nutze den Tastatur-Modus.", "");
       } else setStatus("Verbindung fehlgeschlagen: " + (err && err.message ? err.message : err), "");
     }
+  }
+
+  function floats(dv) {
+    const out = [];
+    for (let i = 0; i + 4 <= dv.byteLength; i += 4) out.push(dv.getFloat32(i, true));
+    return out;
+  }
+  function onBle(id, dv) {
+    logRaw("BT " + id + ": " + hex(dv));
+    if (dv.byteLength < 4) return;
+    const f = floats(dv);
+    if (id === "0101" || id === "010d") newMeasurement(f[0], "Bluetooth");
+    else if (id === "0103") newTilt(Math.abs(f[0]) > 6.3 ? f[0] : f[0] * 180 / Math.PI, "Bluetooth");
   }
 
   // CITO: Text kommt evtl. in Stücken, daher bis Zeilenende sammeln
@@ -517,7 +513,7 @@ body.full #unit { font-size: 11vw; }
   function hex(dv) {
     const b = [];
     for (let i = 0; i < dv.byteLength; i++) b.push(dv.getUint8(i).toString(16).padStart(2, "0"));
-    const f = dv.byteLength >= 4 ? " = " + dv.getFloat32(0, true).toFixed(4) : "";
+    const f = dv.byteLength >= 4 ? " = " + floats(dv).map(v => v.toFixed(4)).join(" / ") : "";
     return b.join(" ") + f;
   }
 
