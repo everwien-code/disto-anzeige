@@ -322,16 +322,11 @@ body.full #unit { font-size: 11vw; }
       const flags = c => ["read:r", "write:w", "writeWithoutResponse:W", "notify:n", "indicate:i"]
         .filter(x => c.properties[x.split(":")[0]]).map(x => x.split(":")[1]).join("");
       logRaw("Kanäle: " + chars.map(c => c.uuid.slice(4, 8) + "(" + flags(c) + ")").join(", "));
-      for (const c of chars) {
-        if (!c.properties.read) continue;
-        try {
-          const v = await c.readValue();
-          const txt = new TextDecoder().decode(v).replace(/[^\x20-\x7e]/g, ".");
-          logRaw("Lesen " + c.uuid.slice(4, 8) + ": " + hex(v) + "  \"" + txt + "\"");
-        } catch (e) { logRaw("Lesen " + c.uuid.slice(4, 8) + " fehlgeschlagen"); }
-      }
       let subscribed = 0;
-      for (const c of chars) {
+      // X3/X4: nur den Messkanal 010d abonnieren. Jeder weitere Zugriff kann eine Kopplung
+      // auslösen, und dann hält das iPhone den DISTO als Tastatur fest.
+      const x4 = chars.find(c => c.uuid.slice(4, 8) === "010d");
+      for (const c of x4 ? [x4] : chars) {
         if (!(c.properties.notify || c.properties.indicate)) continue;
         const id = c.uuid.slice(4, 8);
         c.addEventListener("characteristicvaluechanged", e => onBle(id, e.target.value));
