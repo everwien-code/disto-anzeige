@@ -263,6 +263,7 @@ body.full #unit { font-size: 11vw; }
 
   // ---------- Weg 1: Web Bluetooth ----------
   async function connect(showAll) {
+    let usedKnown = false;
     if (device && device.gatt.connected) { device.gatt.disconnect(); return; }
     if (!navigator.bluetooth) {
       setStatus("Dieser Browser kann kein Bluetooth. Nutze den Tastatur-Modus.", "");
@@ -278,7 +279,7 @@ body.full #unit { font-size: 11vw; }
         let last = null;
         try { last = localStorage.getItem("disto-last-device"); } catch (e) {}
         try { device = (await navigator.bluetooth.getDevices()).find(d => d.id === last) || null; } catch (e) {}
-        if (device) logRaw("Bekanntes Gerät ohne Auswahl: " + (device.name || device.id));
+        if (device) { usedKnown = true; logRaw("Bekanntes Gerät ohne Auswahl: " + (device.name || device.id)); }
       }
       // "Alle Geräte" zeigt jedes Bluetooth-Gerät, falls der DISTO anders heißt
       if (!device) device = await navigator.bluetooth.requestDevice(showAll === true
@@ -341,6 +342,12 @@ body.full #unit { font-size: 11vw; }
       requestWake();
     } catch (err) {
       logRaw("Fehler: " + (err && err.name) + " – " + (err && err.message ? err.message : err));
+      // Gemerktes Gerät nicht erreichbar: vergessen, beim nächsten Tippen kommt die Auswahlliste
+      if (usedKnown) {
+        try { localStorage.removeItem("disto-last-device"); } catch (e) {}
+        setStatus("Gemerktes Gerät nicht erreichbar. Tippe noch einmal auf Verbinden.", "");
+        return;
+      }
       if (err && err.name === "NotFoundError" && /service/i.test(err.message || "")) setStatus("Dieses Gerät hat keinen DISTO- oder CITO-Datenkanal", "");
       else if (err && err.name === "NotFoundError") setStatus("Kein Gerät gewählt. Nicht in der Liste? Tippe auf „Alle Geräte“.", "");
       else if (err && err.name === "SecurityError") {
