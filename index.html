@@ -41,7 +41,7 @@ header { display: flex; align-items: center; gap: 10px; padding-block: 10px; fle
 .dot.on { background: var(--ok); box-shadow: 0 0 10px var(--ok); }
 .dot.wait { background: var(--warn); animation: blink 1s infinite; }
 @keyframes blink { 50% { opacity: .3; } }
-.status span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status span { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; line-height: 1.3; }
 .iconbtn { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font-size: 13px; }
 
 main { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; position: relative; }
@@ -269,8 +269,21 @@ body.full #unit { font-size: 11vw; }
       logRaw("Gewählt: " + (device.name || "(ohne Namen)"));
       device.addEventListener("gattserverdisconnected", onDisconnect);
       setStatus("Verbinde mit " + (device.name || "DISTO") + " …", "wait");
-      const server = await device.gatt.connect();
-      const svc = await server.getPrimaryService(SVC);
+      // Beim ersten Mal koppelt das iPhone mitten im Verbindungsaufbau,
+      // das bricht oft ab. Daher bis zu dreimal versuchen.
+      let server, svc;
+      for (let attempt = 1; ; attempt++) {
+        try {
+          server = await device.gatt.connect();
+          svc = await server.getPrimaryService(SVC);
+          break;
+        } catch (e) {
+          logRaw(`Versuch ${attempt}: ${e && e.name} – ${e && e.message ? e.message : e}`);
+          if (attempt >= 3) throw e;
+          setStatus(`Verbinde erneut (Versuch ${attempt + 1}) …`, "wait");
+          await new Promise(r => setTimeout(r, 1500));
+        }
+      }
       try {
         const chars = await svc.getCharacteristics();
         logRaw("Kanäle: " + chars.map(c => c.uuid.slice(4, 8) + (c.properties.notify || c.properties.indicate ? "*" : "")).join(", "));
